@@ -1,12 +1,17 @@
-const TimeLockedWallet = artifacts.require("./TimeLockedWallet.sol");
-const ERC20Token = artifacts.require("./ERC20Token.sol");
+const TrustlessTimeLocker = artifacts.require("./TrustlessTimeLocker.sol");
+const ERC20Token = artifacts.require("./ERC20.sol");
 
-let ethToSend = web3.toWei(1, "ether");
-let someGas = web3.toWei(0.01, "ether");
+let ethToSend = web3.utils.toWei(String(1), "ether");
+let someGas = web3.utils.toWei(String(0.01), "ether");
 let creator;
 let owner;
 
-contract('TimeLockedWallet', (accounts) => {
+const tokenAdd_MAINNET = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+const UNLOCKED_ACCOUNT = "0x6262998ced04146fa42253a5c0af90ca02dfd2a3";
+const uni_r = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
+//
+
+contract('TrustlessTimeLocker', (accounts) => {
 
     before(async () => {
         creator = accounts[0];
@@ -14,117 +19,127 @@ contract('TimeLockedWallet', (accounts) => {
         other = accounts[2];
     });
 
+    describe("UniswapTradeExample", function () {
+        it("Swap ETH for DAI", async function () {
+            const provider = ethers.provider;
+            const [owner, addr1] = await ethers.getSigners();
+            const DAI = new ethers.Contract(DAI_ADDRESS, ERC20ABI, provider);
+    
+            // Assert addr1 has 1000 ETH to start
+            addr1Balance = await provider.getBalance(addr1.address);
+            expectedBalance = ethers.BigNumber.from("10000000000000000000000");
+            assert(addr1Balance.eq(expectedBalance));
+    
+            // Assert addr1 DAI balance is 0
+            addr1Dai = await DAI.balanceOf(addr1.address);
+            assert(addr1Dai.isZero());
+    
+            // Deploy UniswapTradeExample
+            const uniswapTradeExample =
+                await ethers.getContractFactory("UniswapTradeExample")
+                    .then(contract => contract.deploy(UNISWAPV2ROUTER02_ADDRESS));
+            await uniswapTradeExample.deployed();
+    
+            // Swap 1 ETH for DAI
+            await uniswapTradeExample.connect(addr1).swapExactETHForTokens(
+                0,
+                DAI_ADDRESS,
+                { value: ethers.utils.parseEther("1") }
+            );
+    
+            // Assert addr1Balance contains one less ETH
+            expectedBalance = addr1Balance.sub(ethers.utils.parseEther("1"));
+            addr1Balance = await provider.getBalance(addr1.address);
+            assert(addr1Balance.lt(expectedBalance));
+    
+            // Assert DAI balance increased
+            addr1Dai = await DAI.balanceOf(addr1.address);
+            assert(addr1Dai.gt(ethers.BigNumber.from("0")));
+        });
+    });
     it("Owner can withdraw the funds after the unlock date", async () => {
+
+        const tokenAdd = await ERC20Token.at(tokenAdd_MAINNET);
+        let creatorBal = await web3.eth.getBalance(creator);
+        console.log("----OWNER v:",await web3.eth.getBalance(owner));
+        console.log("----Creator v:",await web3.eth.getBalance(creator));
         //set unlock date in unix epoch to now
         let now = Math.floor((new Date).getTime() / 1000);
         //create the contract and load the contract with some eth
-        let timeLockedWallet = await TimeLockedWallet.new(creator, owner, now);
-        await timeLockedWallet.send(ethToSend, {from: creator});
-        assert(ethToSend == await web3.eth.getBalance(timeLockedWallet.address));
+        let TrustlessTimeLocker = await TrustlessTimeLocker.new(creator, owner, tokenAdd_MAINNET);
+
+        //await tokenAdd.approve(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D, 100000000000000);
+        await tokenAdd.approve(creator, 100000000000000);
+        await tokenAdd.approve(owner, 100000000000000);
+        await tokenAdd.approve(TrustlessTimeLocker.address, 100000000000000);
+
+        console.log("-----1----------");
+        await TrustlessTimeLocker.swapEthForToken(1), { from: creator };
+        console.log("-----1----------");
+       // await TrustlessTimeLocker.send(ethToSend, {from: creator});
+       console.log("TrustlessTimeLocker v:",await web3.eth.getBalance(TrustlessTimeLocker.address));
+       console.log("OWNER v:",await web3.eth.getBalance(owner));
+       console.log("Creator v:",await web3.eth.getBalance(creator));
+        assert(ethToSend == await web3.eth.getBalance(TrustlessTimeLocker.address));
+
         let balanceBefore = await web3.eth.getBalance(owner);
-        await timeLockedWallet.withdraw({from: owner});
+        let creatorBalaf = await web3.eth.getBalance(creator);
+        console.log("creatorBalaf:",creatorBalaf)
+        await TrustlessTimeLocker.withdraw({from: owner});
         let balanceAfter = await web3.eth.getBalance(owner);
         assert(balanceAfter - balanceBefore >= ethToSend - someGas);
     });
 
 
-    it("Nobody can withdraw the funds before the unlock date", async () => {
-        //set unlock date in unix epoch to some future date
-        let futureTime = Math.floor((new Date).getTime() / 1000) + 50000;
-
+    it("only owner can pull fund before the timeout", async () => {
+        //set unlock date in unix epoch to now
+        let now = Math.floor((new Date).getTime() / 1000);
+        
         //create the contract
-        let timeLockedWallet = await TimeLockedWallet.new(creator, owner, futureTime);
+        let TrustlessTimeLocker = await TrustlessTimeLocker.new(creator, owner, tokenAdd_MAINNET);
 
         //load the contract with some eth
-        await timeLockedWallet.send(ethToSend, {from: creator});
-        assert(ethToSend == await web3.eth.getBalance(timeLockedWallet.address));
+        await TrustlessTimeLocker.send(ethToSend, {from: creator});
+        assert(ethToSend == await web3.eth.getBalance(TrustlessTimeLocker.address));
+        
         try {
-            await timeLockedWallet.withdraw({from: owner})
+            await TrustlessTimeLocker.withdraw({from: creator})
             assert(false, "Expected error not received");
         } catch (error) {} //expected
 
         try {
-            await timeLockedWallet.withdraw({from: creator})
-            assert(false, "Expected error not received");
-        } catch (error) {} //expected
-
-        try {
-            await timeLockedWallet.withdraw({from: other})
+            await TrustlessTimeLocker.withdraw({from: other})
             assert(false, "Expected error not received");
         } catch (error) {} //expected
 
         //contract balance is intact
-        assert(ethToSend == await web3.eth.getBalance(timeLockedWallet.address));
+        assert(ethToSend == await web3.eth.getBalance(TrustlessTimeLocker.address));
     });
 
-    it("Nobody other than the owner can withdraw funds after the unlock date", async () => {
+    it("Nobody other than the creator can withdraw funds after the timeout", async () => {
         //set unlock date in unix epoch to now
         let now = Math.floor((new Date).getTime() / 1000);
 
         //create the contract
-        let timeLockedWallet = await TimeLockedWallet.new(creator, owner, now);
+        let TrustlessTimeLocker = await TrustlessTimeLocker.new(creator, owner, tokenAdd_MAINNET);
 
         //load the contract with some eth
-        await timeLockedWallet.send(ethToSend, {from: creator});
-        assert(ethToSend == await web3.eth.getBalance(timeLockedWallet.address));
+        await TrustlessTimeLocker.send(ethToSend, {from: creator});
+        assert(ethToSend == await web3.eth.getBalance(TrustlessTimeLocker.address));
         let balanceBefore = await web3.eth.getBalance(owner);
 
         try {
-          await timeLockedWallet.withdraw({from: creator})
+          await TrustlessTimeLocker.withdraw({from: owner})
           assert(false, "Expected error not received");
         } catch (error) {} //expected
 
         try {
-          await timeLockedWallet.withdraw({from: other})
+          await TrustlessTimeLocker.withdraw({from: other})
           assert(false, "Expected error not received");
         } catch (error) {} //expected
 
         //contract balance is intact
-        assert(ethToSend == await web3.eth.getBalance(timeLockedWallet.address));
-    });
-
-    it("Owner can withdraw the ERC20Token after the unlock date", async () => {
-        //set unlock date in unix epoch to now
-        let now = Math.floor((new Date).getTime() / 1000);
-        //create the wallet contract 
-        let timeLockedWallet = await TimeLockedWallet.new(creator, owner, now);
-
-        //create ERC20Token contract
-        let ERC20Token = await ERC20Token.new({from: creator});
-        //check contract initiated well and has 1M of tokens
-        assert(1000000000000 == await ERC20Token.balanceOf(creator));        
-
-        //load the wallet with some Toptal tokens
-        let amountOfTokens = 1000000000;
-        await ERC20Token.transfer(timeLockedWallet.address, amountOfTokens, {from: creator});
-        //check that timeLockedWallet has ERC20Tokens
-        assert(amountOfTokens == await ERC20Token.balanceOf(timeLockedWallet.address));
-        //now withdraw tokens
-        await timeLockedWallet.withdrawTokens(ERC20Token.address, {from: owner});
-        //check the balance is correct
-        let balance = await ERC20Token.balanceOf(owner);
-        assert(balance.toNumber() == amountOfTokens);
-    });
-
-    it("Allow getting info about the wallet", async () => {
-        // Remember current time.
-        let now = Math.floor((new Date).getTime() / 1000);
-        // Set unlockDate to future time.
-        let unlockDate = now + 100000;
-        // Create new LockedWallet.
-        let timeLockedWallet = await TimeLockedWallet.new(creator, owner, unlockDate);
-        // Send ether to the wallet.        
-        await timeLockedWallet.send(ethToSend, {from: creator});
-        
-        // Get info about the wallet. 
-        let info = await timeLockedWallet.info();
-
-        // Compare result with expected values.
-        assert(info[0] == creator);
-        assert(info[1] == owner);
-        assert(info[2].toNumber() == unlockDate);
-        assert(info[3].toNumber() == now);
-        assert(info[4].toNumber() == ethToSend);
+        assert(ethToSend == await web3.eth.getBalance(TrustlessTimeLocker.address));
     });
 
 });

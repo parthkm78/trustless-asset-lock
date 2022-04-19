@@ -1,7 +1,5 @@
-var TimeLockedWalletFactory = artifacts.require("TimeLockedWalletFactory");
-var ERC20Token = artifacts.require("ERC20Token");
+var TrustlessTimeLockerFactory = artifacts.require("TrustlessTimeLockerFactory");
 
 module.exports = function(deployer) {
-  deployer.deploy(TimeLockedWalletFactory);
-  deployer.deploy(ERC20Token);
+  deployer.deploy(TrustlessTimeLockerFactory);
 };
